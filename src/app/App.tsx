@@ -57,7 +57,21 @@ function AppContent() {
 
   const handleAgentChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newAgentSetKey = event.target.value;
-    const newAgentSet = allAgentSets[newAgentSetKey];
+    
+    // Find the agent set from the categories
+    let newAgentSet = null;
+    for (const category of Object.values(agentCategories)) {
+      const agent = Object.values(category).find(a => a.key === newAgentSetKey);
+      if (agent) {
+        newAgentSet = allAgentSets[newAgentSetKey as keyof typeof allAgentSets];
+        break;
+      }
+    }
+    
+    if (!newAgentSet) {
+      console.error(`Agent set ${newAgentSetKey} not found`);
+      return;
+    }
     
     // Disconnect current session if connected
     if (sessionStatus === "CONNECTED") {
@@ -65,16 +79,23 @@ function AppContent() {
     }
     
     setSelectedAgentConfigSet(newAgentSet);
-    setSelectedAgentName(newAgentSet[0]?.name || "");
     
-    // Auto-connect with the new agent
-    setTimeout(() => {
-      if (newAgentSet && newAgentSet.length > 0) {
+    // Set the agent name from the first agent in the set
+    const firstAgent = newAgentSet[0];
+    if (firstAgent) {
+      setSelectedAgentName(firstAgent.name);
+      
+      // Auto-connect with the new agent after a short delay
+      setTimeout(() => {
         handleConnect();
-      }
-    }, 100);
+      }, 100);
+    }
     
-    logClientEvent({ type: "agent_set_changed", agentSetKey: newAgentSetKey });
+    logClientEvent({ 
+      type: "agent_set_changed", 
+      agentSetKey: newAgentSetKey,
+      agentName: firstAgent?.name 
+    });
   };
 
   const handleConnect = async () => {
