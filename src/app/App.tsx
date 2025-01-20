@@ -58,6 +58,11 @@ function AppContent() {
   const handleAgentChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newAgentSetKey = event.target.value;
     
+    // If the new agent is the same as the current one, do nothing
+    if (newAgentSetKey === agentSetKey) {
+      return;
+    }
+    
     // Find the agent set from the categories
     let newAgentSet = null;
     for (const category of Object.values(agentCategories)) {
@@ -283,6 +288,20 @@ function AppContent() {
 
   const agentSetKey = searchParams.get("agentConfig") || defaultAgentSetKey;
 
+  // Find current agent set key
+  const getCurrentAgentSetKey = () => {
+    if (!selectedAgentConfigSet) return agentSetKey;
+    
+    for (const [category, agents] of Object.entries(agentCategories)) {
+      for (const [key, agent] of Object.entries(agents)) {
+        if (allAgentSets[key as keyof typeof allAgentSets] === selectedAgentConfigSet) {
+          return key;
+        }
+      }
+    }
+    return agentSetKey;
+  };
+
   return (
     <div className="text-base flex flex-col h-screen bg-background text-foreground relative">
       <div className="p-5 text-lg font-semibold flex justify-between items-center bg-background border-b border-gray-700">
@@ -318,7 +337,7 @@ function AppContent() {
             </label>
             <div className="relative">
               <select
-                value={agentSetKey}
+                value={getCurrentAgentSetKey()}
                 onChange={handleAgentChange}
                 className="appearance-none bg-background border border-gray-600 rounded-lg text-base px-4 py-2 pr-10 cursor-pointer font-normal text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[300px]"
               >

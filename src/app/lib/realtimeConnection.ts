@@ -1,5 +1,6 @@
 import { RefObject } from "react";
 import { DEEPSEEK_API_ENDPOINT, LANGFLOW_SYSTEM_PROMPT } from "./deepseek";
+import { ConversationMemoryChain } from "./memoryChain";
 
 export interface Message {
   role: "system" | "user" | "assistant";
@@ -31,16 +32,27 @@ class DeepSeekConnection implements ConnectionManager {
     delayMs: 1000,
     backoffFactor: 2
   };
+  private memoryChain: ConversationMemoryChain;
 
   constructor(apiKey?: string, retryConfig?: Partial<RetryConfig>, systemPrompt?: string) {
     this.apiKey = apiKey || process.env.DEEPSEEK_API_KEY || null;
     if (retryConfig) {
       this.retryConfig = { ...this.retryConfig, ...retryConfig };
     }
-    this.messageHistory = [{
+    
+    // Initialize memory chain
+    this.memoryChain = new ConversationMemoryChain({
+      maxMessages: this.maxHistoryLength,
+      summarizeThreshold: 5
+    });
+    
+    // Add system message
+    const systemMessage: Message = {
       role: "system",
       content: systemPrompt || "You are a helpful AI assistant."
-    }];
+    };
+    this.messageHistory = [systemMessage];
+    this.memoryChain.addMessage(systemMessage);
   }
 
   get isConnected() {
@@ -101,61 +113,71 @@ class DeepSeekConnection implements ConnectionManager {
 
   disconnect() {
     this._isConnected = false;
-    this.messageHistory = [{
-      role: "system",
-      content: LANGFLOW_SYSTEM_PROMPT
-    }];
+    this.messageHistory = [];
+    this.memoryChain.clear();
   }
 
-  private addToHistory(message: Message) {
-    this.messageHistory.push(message);
-    if (this.messageHistory.length > this.maxHistoryLength + 1) {
-      this.messageHistory = [
-        this.messageHistory[0],
-        ...this.messageHistory.slice(-(this.maxHistoryLength))
-      ];
-    }
-  }
-
-  async sendMessage(message: string) {
+  async sendMessage(message: string): Promise<any> {
     if (!this._isConnected) {
-      throw new Error("Not connected to DeepSeek");
+      throw new Error("Not connected");
     }
 
-    this.addToHistory({ role: "user", content: message });
+    const userMessage: Message = { role: "user", content: message };
+    await this.memoryChain.addMessage(userMessage);
 
-    return this.retryOperation(async () => {
-      const response = await fetch(DEEPSEEK_API_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${this.apiKey}`
+    try {
+      const response = await this.retryOperation(
+        async () => {
+          const messages = [
+            ...this.messageHistory,
+            { role: "system", content: this.memoryChain.getFormattedContext() },
+            userMessage
+          ];
+
+          const result = await fetch(DEEPSEEK_API_ENDPOINT, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "deepseek-chat",
+              messages,
+              temperature: 0.7,
+            }),
+          });
+
+          if (!result.ok) {
+            throw new Error(`API request failed: ${result.statusText}`);
+          }
+
+          return await result.json();
         },
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          messages: this.messageHistory,
-          temperature: 0.7,
-          max_tokens: 2000
-        })
-      });
+        "Failed to send message"
+      );
 
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: response.choices[0].message.content,
+      };
       
-      if (!result.choices?.[0]?.message) {
-        throw new Error("Invalid response format from API");
+      await this.memoryChain.addMessage(assistantMessage);
+      this.messageHistory.push(userMessage, assistantMessage);
+
+      // Trim history if needed
+      if (this.messageHistory.length > this.maxHistoryLength) {
+        this.messageHistory = this.messageHistory.slice(-this.maxHistoryLength);
       }
 
-      this.addToHistory(result.choices[0].message);
-      return result;
-    }, "Failed to send message to DeepSeek");
+      return response;
+    } catch (error) {
+      console.error("Error sending message:", error);
+      throw error;
+    }
   }
 
   getContext(): Message[] {
-    return [...this.messageHistory];
+    return this.memoryChain.getContext().messages;
   }
 }
 
