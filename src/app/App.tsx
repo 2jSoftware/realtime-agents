@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 import Transcript from "./components/Transcript";
 import Events from "./components/Events";
 import BottomToolbar from "./components/BottomToolbar";
+import Analytics from "./components/Analytics";
 
 // Types
 import { AgentConfig, SessionStatus } from "@/app/types";
@@ -25,6 +26,9 @@ import { createRealtimeConnection } from "./lib/realtimeConnection";
 import { createAudioManager } from "./lib/audioManager";
 import type { ConnectionManager } from "./lib/realtimeConnection";
 import type { AudioManager } from "./lib/audioManager";
+import { analyticsLogger } from "./lib/analyticsLogger";
+
+export type DelegationMode = 'manual' | 'auto';
 
 function App() {
   return (
@@ -44,6 +48,7 @@ function AppContent() {
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("DISCONNECTED");
   const [userText, setUserText] = useState<string>("");
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [delegationMode, setDelegationMode] = useState<DelegationMode>('manual');
   
   // Managers
   const connectionRef = useRef<ConnectionManager | null>(null);
@@ -56,6 +61,28 @@ function AppContent() {
   const [isEventsPaneExpanded, setIsEventsPaneExpanded] = useState<boolean>(true);
 
   const handleAgentChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    if (delegationMode === 'auto') {
+      const suggestions = analyticsLogger.getDelegationSuggestions();
+      
+      // Require extremely high confidence and multiple supporting factors
+      const hasHighConfidence = suggestions.confidence > 0.95;
+      const hasMultipleReasons = suggestions.reasoning.length >= 3;
+      const hasContextMatch = Object.values(suggestions.contextMatch).every(score => score > 0.9);
+      
+      if (!hasHighConfidence || !hasMultipleReasons || !hasContextMatch) {
+        logClientEvent({ 
+          type: "agent_change_rejected",
+          reason: "Insufficient confidence for auto-delegation",
+          details: {
+            confidence: suggestions.confidence,
+            reasonCount: suggestions.reasoning.length,
+            contextMatch: suggestions.contextMatch
+          }
+        });
+        return;
+      }
+    }
+
     const newAgentSetKey = event.target.value;
     
     // If the new agent is the same as the current one, do nothing
@@ -89,6 +116,35 @@ function AppContent() {
     const firstAgent = newAgentSet[0];
     if (firstAgent) {
       setSelectedAgentName(firstAgent.name);
+      
+      // Update analytics with new agent context
+      analyticsLogger.setCurrentAgent(firstAgent);
+      
+      // Log outcome projection for the new agent
+      analyticsLogger.addOutcomeProjection({
+        immediateGoal: "Initialize new agent interaction",
+        contextualGoals: [firstAgent.publicDescription],
+        requiredCapabilities: ["agent_initialization", "context_awareness"],
+        successCriteria: {
+          primary: ["Successful connection", "Relevant responses"],
+          secondary: ["Goal alignment"],
+          metrics: {
+            responseTime: "immediate",
+            contextMatch: "high"
+          }
+        },
+        riskFactors: [{
+          type: "context_transition",
+          likelihood: "low",
+          impact: "medium",
+          mitigationStrategy: "Clear initialization and goal setting"
+        }],
+        delegationHints: {
+          suggestedAgents: [],
+          reasoning: ["Initial agent selection"],
+          confidenceScore: 1.0
+        }
+      });
       
       // Auto-connect with the new agent after a short delay
       setTimeout(() => {
@@ -151,6 +207,32 @@ function AppContent() {
     if (!userText.trim() || !connectionRef.current?.isConnected) return;
 
     const messageId = uuidv4();
+    
+    // Update scenario context based on message content
+    analyticsLogger.updateScenarioContext(userText);
+    
+    // Log interaction pattern with enhanced context
+    analyticsLogger.updateInteractionPatterns({
+      primaryIntent: "user_query",
+      secondaryIntents: [],
+      contextualDomain: "general",
+      knowledgeRequirements: {
+        domains: ["general"],
+        depth: "moderate",
+        temporalRelevance: "current"
+      },
+      interactionStyle: {
+        formality: "casual",
+        detailLevel: "detailed",
+        preferredFormat: ["text"]
+      },
+      userContext: {
+        expertise: "intermediate",
+        goalClarity: "moderate",
+        engagementStyle: "active"
+      }
+    });
+
     addTranscriptMessage({
       itemId: messageId,
       role: "user",
@@ -168,6 +250,32 @@ function AppContent() {
         content: assistantContent
       });
       
+      // Log successful interaction outcome with enhanced data
+      analyticsLogger.addOutcomeProjection({
+        immediateGoal: "Provide relevant information",
+        contextualGoals: ["Maintain conversation coherence", "Ensure user satisfaction"],
+        requiredCapabilities: ["information_synthesis", "natural_language_understanding"],
+        successCriteria: {
+          primary: ["Information accuracy", "Response relevance"],
+          secondary: ["Response timing", "Clarity of explanation"],
+          metrics: {
+            responseTime: "immediate",
+            contentRelevance: "high"
+          }
+        },
+        riskFactors: [{
+          type: "accuracy",
+          likelihood: "low",
+          impact: "high",
+          mitigationStrategy: "Verify information sources"
+        }],
+        delegationHints: {
+          suggestedAgents: [],
+          reasoning: ["Current agent handling query effectively"],
+          confidenceScore: 0.9
+        }
+      });
+      
       updateTranscriptItemStatus(assistantMessageId, "DONE");
       logClientEvent({ type: "message.sent", messageId });
 
@@ -177,6 +285,19 @@ function AppContent() {
         role: "assistant",
         content: "Sorry, I encountered an error. Please try again."
       });
+      
+      // Log failed interaction outcome with enhanced error context
+      analyticsLogger.logOutcome("message_exchange_failed", {
+        userMessage: userText,
+        error: error instanceof Error ? error.message : "Unknown error",
+        success: false,
+        failureAnalysis: {
+          type: "system_error",
+          impact: "high",
+          recovery: "retry_suggested"
+        }
+      });
+      
       logClientEvent({ type: "message.error", error });
     }
 
@@ -370,8 +491,17 @@ function AppContent() {
             canSend={sessionStatus === "CONNECTED"}
           />
         </div>
-        <div className="w-96 border-l border-gray-200 p-4 overflow-y-auto">
-          <Events isExpanded={isEventsPaneExpanded} />
+        <div className="w-96 border-l border-[var(--border)] flex flex-col">
+          <div className="flex-1 p-4 overflow-y-auto">
+            <Events isExpanded={isEventsPaneExpanded} />
+          </div>
+          <div className="flex-1 p-4 overflow-y-auto border-t border-[var(--border)]">
+            <Analytics 
+              isExpanded={isEventsPaneExpanded}
+              delegationMode={delegationMode}
+              onDelegationModeChange={setDelegationMode}
+            />
+          </div>
         </div>
       </div>
 
