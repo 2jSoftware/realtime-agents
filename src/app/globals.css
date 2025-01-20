@@ -2,21 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Default dark theme */
 :root {
-  --background: #fafafa;
-  --foreground: #171717;
+  --background: #1a1a1a;
+  --foreground: #ffffff;
+  --border: #374151;
+  --input-bg: #1f2937;
+  --bubble-bg: #2d3748;
+  --bubble-border: #4a5568;
+  --text-primary: #ffffff;
+  --text-secondary: #9ca3af;
+  --text-disabled: #6b7280;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Light theme overrides */
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #171717;
+  --border: #e5e7eb;
+  --input-bg: #f9fafb;
+  --bubble-bg: #f3f4f6;
+  --bubble-border: #e5e7eb;
+  --text-primary: #171717;
+  --text-secondary: #4b5563;
+  --text-disabled: #9ca3af;
 }
 
 body {
-  color: var(--foreground);
+  color: var(--text-primary);
   background: var(--background);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+.theme-toggle {
+  @apply p-2 rounded-lg transition-colors;
+  background: var(--bubble-bg);
+  border: 1px solid var(--bubble-border);
+  color: var(--text-primary);
+}
+
+.theme-toggle:hover {
+  background: var(--input-bg);
+}
+
+.theme-toggle svg {
+  @apply w-5 h-5;
 }

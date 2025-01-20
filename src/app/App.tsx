@@ -18,7 +18,7 @@ import { useTranscript } from "@/app/contexts/TranscriptContext";
 import { useEvent } from "@/app/contexts/EventContext";
 
 // Agent configs
-import { allAgentSets, defaultAgentSetKey } from "@/app/agentConfigs";
+import { allAgentSets, defaultAgentSetKey, agentCategories } from "@/app/agentConfigs";
 
 // Managers
 import { createRealtimeConnection } from "./lib/realtimeConnection";
@@ -43,6 +43,7 @@ function AppContent() {
   const [selectedAgentConfigSet, setSelectedAgentConfigSet] = useState<AgentConfig[] | null>(null);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("DISCONNECTED");
   const [userText, setUserText] = useState<string>("");
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   
   // Managers
   const connectionRef = useRef<ConnectionManager | null>(null);
@@ -56,7 +57,23 @@ function AppContent() {
 
   const handleAgentChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newAgentSetKey = event.target.value;
-    setSelectedAgentConfigSet(allAgentSets[newAgentSetKey]);
+    const newAgentSet = allAgentSets[newAgentSetKey];
+    
+    // Disconnect current session if connected
+    if (sessionStatus === "CONNECTED") {
+      handleDisconnect();
+    }
+    
+    setSelectedAgentConfigSet(newAgentSet);
+    setSelectedAgentName(newAgentSet[0]?.name || "");
+    
+    // Auto-connect with the new agent
+    setTimeout(() => {
+      if (newAgentSet && newAgentSet.length > 0) {
+        handleConnect();
+      }
+    }, 100);
+    
     logClientEvent({ type: "agent_set_changed", agentSetKey: newAgentSetKey });
   };
 
@@ -189,6 +206,12 @@ function AppContent() {
 
     const storedAudio = localStorage.getItem("audioPlaybackEnabled");
     if (storedAudio) setIsAudioPlaybackEnabled(storedAudio === "true");
+
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
   }, []);
 
   useEffect(() => {
@@ -202,6 +225,25 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem("audioPlaybackEnabled", isAudioPlaybackEnabled.toString());
   }, [isAudioPlaybackEnabled]);
+
+  const updateTheme = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+  };
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    updateTheme(newTheme);
+  };
+
+  // Initialize theme on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+    updateTheme(initialTheme);
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -221,42 +263,59 @@ function AppContent() {
   const agentSetKey = searchParams.get("agentConfig") || defaultAgentSetKey;
 
   return (
-    <div className="text-base flex flex-col h-screen bg-gray-100 text-gray-800 relative">
-      <div className="p-5 text-lg font-semibold flex justify-between items-center bg-white shadow-sm">
-        <div className="flex items-center">
+    <div className="text-base flex flex-col h-screen bg-background text-foreground relative">
+      <div className="p-5 text-lg font-semibold flex justify-between items-center bg-background border-b border-gray-700">
+        <div className="flex items-center gap-3">
           <div onClick={() => window.location.reload()} style={{ cursor: 'pointer' }}>
             <Image
               src="/deepseek-logo.svg"
-              alt="DeepSeek Logo"
-              width={20}
-              height={20}
+              alt="2jSoftware Logo"
+              width={24}
+              height={24}
               className="mr-2"
             />
           </div>
           <div>
-            DeepSeek <span className="text-gray-500">Business Assistant</span>
+            2jSoftware <span className="text-secondary">Business Assistant</span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center text-base gap-2 font-medium text-gray-700">
-            Scenarios
-          </label>
-          <div className="relative">
-            <select
-              value={agentSetKey}
-              onChange={handleAgentChange}
-              className="appearance-none bg-white border border-gray-300 rounded-lg text-base px-4 py-2 pr-10 cursor-pointer font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]"
-            >
-              {Object.entries(allAgentSets).map(([key, agents]) => (
-                <option key={key} value={key}>
-                  {agents[0]?.publicDescription?.split('.')[0] || key}
-                </option>
-              ))}
-            </select>
-            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+        <div className="flex items-center gap-4">
+          <button onClick={toggleTheme} className="theme-toggle" title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}>
+            {theme === 'light' ? (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
               </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+              </svg>
+            )}
+          </button>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center text-base gap-2 font-medium text-foreground">
+              Scenarios
+            </label>
+            <div className="relative">
+              <select
+                value={agentSetKey}
+                onChange={handleAgentChange}
+                className="appearance-none bg-background border border-gray-600 rounded-lg text-base px-4 py-2 pr-10 cursor-pointer font-normal text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[300px]"
+              >
+                {Object.entries(agentCategories).map(([category, agents]) => (
+                  <optgroup key={category} label={category}>
+                    {Object.values(agents).map((agent) => (
+                      <option key={agent.key} value={agent.key} title={agent.description}>
+                        {agent.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
           </div>
         </div>
