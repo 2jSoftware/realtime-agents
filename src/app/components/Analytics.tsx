@@ -26,8 +26,11 @@ function Analytics({ isExpanded = true, delegationMode, onDelegationModeChange }
       }
     };
 
+    // Create a unique key combining timestamp and event type
+    const eventKey = `${event.timestamp}-${event.category}-${event.type}`;
+
     return (
-      <div key={event.timestamp} className="py-2 hover:bg-[var(--bubble-bg)] transition-colors">
+      <div key={eventKey} className="py-2 hover:bg-[var(--bubble-bg)] transition-colors">
         <div className="flex items-center justify-between">
           <span className={`text-sm ${getEventColor(event.category)}`}>
             {event.category.toUpperCase()} - {event.type}
