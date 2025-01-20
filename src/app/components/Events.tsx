@@ -36,16 +36,16 @@ function Events({ isExpanded = true }: EventsProps) {
   return (
     <div
       className={
-        (isExpanded ? "w-1/2 overflow-auto" : "w-0 overflow-hidden opacity-0") +
-        " transition-all rounded-xl duration-200 ease-in-out flex flex-col bg-white"
+        (isExpanded ? "w-[500px] min-w-[400px] max-w-[600px] overflow-auto" : "w-0 overflow-hidden opacity-0") +
+        " transition-all rounded-xl duration-200 ease-in-out flex flex-col bg-gray-50 shadow-lg"
       }
       ref={eventLogsContainerRef}
     >
       <div>
-        <div className="font-semibold px-6 py-4 sticky top-0 z-10 text-base border-b bg-white">
+        <div className="font-semibold px-6 py-4 sticky top-0 z-10 text-base border-b bg-white shadow-sm">
           Logs
         </div>
-        <div>
+        <div className="divide-y divide-gray-200">
           {loggedEvents.map((log) => {
             const arrowInfo = getDirectionArrow(log.direction);
             const isError =
@@ -55,36 +55,36 @@ function Events({ isExpanded = true }: EventsProps) {
             return (
               <div
                 key={log.id}
-                className="border-t border-gray-200 py-2 px-6 font-mono"
+                className="py-3 px-6 font-mono hover:bg-gray-100 transition-colors"
               >
                 <div
                   onClick={() => toggleExpand(log.id)}
                   className="flex items-center justify-between cursor-pointer"
                 >
-                  <div className="flex items-center flex-1">
+                  <div className="flex items-center flex-1 min-w-0">
                     <span
                       style={{ color: arrowInfo.color }}
-                      className="ml-1 mr-2"
+                      className="ml-1 mr-2 flex-shrink-0"
                     >
-                    {arrowInfo.symbol}
+                      {arrowInfo.symbol}
                     </span>
                     <span
                       className={
-                        "flex-1 text-sm " +
-                        (isError ? "text-red-600" : "text-gray-800")
+                        "flex-1 text-sm truncate " +
+                        (isError ? "text-red-600 font-medium" : "text-gray-900")
                       }
                     >
                       {log.eventName}
                     </span>
                   </div>
-                  <div className="text-gray-500 ml-1 text-xs whitespace-nowrap">
+                  <div className="text-gray-600 ml-3 text-xs whitespace-nowrap flex-shrink-0">
                     {log.timestamp}
                   </div>
                 </div>
 
                 {log.expanded && log.eventData && (
-                  <div className="text-gray-800 text-left">
-                    <pre className="border-l-2 ml-1 border-gray-200 whitespace-pre-wrap break-words font-mono text-xs mb-2 mt-2 pl-2">
+                  <div className="text-gray-800 text-left mt-2">
+                    <pre className="border-l-2 ml-1 border-gray-300 whitespace-pre-wrap break-words font-mono text-xs pl-3 py-2 bg-white rounded-r-lg overflow-x-auto max-w-full">
                       {JSON.stringify(log.eventData, null, 2)}
                     </pre>
                   </div>

@@ -222,7 +222,7 @@ function AppContent() {
 
   return (
     <div className="text-base flex flex-col h-screen bg-gray-100 text-gray-800 relative">
-      <div className="p-5 text-lg font-semibold flex justify-between items-center">
+      <div className="p-5 text-lg font-semibold flex justify-between items-center bg-white shadow-sm">
         <div className="flex items-center">
           <div onClick={() => window.location.reload()} style={{ cursor: 'pointer' }}>
             <Image
@@ -237,25 +237,27 @@ function AppContent() {
             DeepSeek <span className="text-gray-500">Business Assistant</span>
           </div>
         </div>
-        <div className="flex items-center">
-          <label className="flex items-center text-base gap-1 mr-2 font-medium">
+        <div className="flex items-center gap-3">
+          <label className="flex items-center text-base gap-2 font-medium text-gray-700">
             Scenarios
           </label>
-          <div className="relative inline-block">
+          <div className="relative">
             <select
               value={agentSetKey}
               onChange={handleAgentChange}
-              className="appearance-none border border-gray-300 rounded-lg text-base px-2 py-1 pr-8 cursor-pointer font-normal focus:outline-none"
+              className="appearance-none bg-white border border-gray-300 rounded-lg text-base px-4 py-2 pr-10 cursor-pointer font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]"
             >
-              <option value="newsAnalysis">News Analysis</option>
-              <option value="marketResearch">Market Research</option>
-              <option value="competitorAnalysis">Competitor Analysis</option>
-              <option value="businessStrategy">Business Strategy</option>
-              <option value="trendAnalysis">Trend Analysis</option>
-              <option value="financialReports">Financial Reports</option>
-              <option value="productResearch">Product Research</option>
-              <option value="customerFeedback">Customer Feedback</option>
+              {Object.entries(allAgentSets).map(([key, agents]) => (
+                <option key={key} value={key}>
+                  {agents[0]?.publicDescription?.split('.')[0] || key}
+                </option>
+              ))}
             </select>
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
           </div>
         </div>
       </div>
