@@ -3,7 +3,8 @@ import { SessionStatus } from "@/app/types";
 
 interface BottomToolbarProps {
   sessionStatus: SessionStatus;
-  onToggleConnection: () => void;
+  onConnect: () => void;
+  onDisconnect: () => void;
   isPTTActive: boolean;
   setIsPTTActive: (val: boolean) => void;
   isPTTUserSpeaking: boolean;
@@ -17,7 +18,8 @@ interface BottomToolbarProps {
 
 function BottomToolbar({
   sessionStatus,
-  onToggleConnection,
+  onConnect,
+  onDisconnect,
   isPTTActive,
   setIsPTTActive,
   isPTTUserSpeaking,
@@ -31,32 +33,20 @@ function BottomToolbar({
   const isConnected = sessionStatus === "CONNECTED";
   const isConnecting = sessionStatus === "CONNECTING";
 
-  function getConnectionButtonLabel() {
-    if (isConnected) return "Disconnect";
-    if (isConnecting) return "Connecting...";
-    return "Connect";
-  }
-
-  function getConnectionButtonClasses() {
-    const baseClasses = "text-white text-base p-2 w-36 rounded-full h-full";
-    const cursorClass = isConnecting ? "cursor-not-allowed" : "cursor-pointer";
-
-    if (isConnected) {
-      // Connected -> label "Disconnect" -> red
-      return `bg-red-600 hover:bg-red-700 ${cursorClass} ${baseClasses}`;
-    }
-    // Disconnected or connecting -> label is either "Connect" or "Connecting" -> black
-    return `bg-black hover:bg-gray-900 ${cursorClass} ${baseClasses}`;
-  }
-
   return (
     <div className="p-4 flex flex-row items-center justify-center gap-x-8">
       <button
-        onClick={onToggleConnection}
-        className={getConnectionButtonClasses()}
+        onClick={isConnected ? onDisconnect : onConnect}
         disabled={isConnecting}
+        className={`px-4 py-2 rounded-lg font-medium ${
+          isConnected
+            ? "bg-red-500 text-white hover:bg-red-600"
+            : isConnecting
+            ? "bg-gray-400 text-white cursor-not-allowed"
+            : "bg-green-500 text-white hover:bg-green-600"
+        }`}
       >
-        {getConnectionButtonLabel()}
+        {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
       </button>
 
       <div className="flex flex-row items-center gap-2">
@@ -64,11 +54,16 @@ function BottomToolbar({
           id="push-to-talk"
           type="checkbox"
           checked={isPTTActive}
-          onChange={e => setIsPTTActive(e.target.checked)}
+          onChange={(e) => setIsPTTActive(e.target.checked)}
           disabled={!isConnected}
           className="w-4 h-4"
         />
-        <label htmlFor="push-to-talk" className="flex items-center cursor-pointer">
+        <label
+          htmlFor="push-to-talk"
+          className={`flex items-center ${
+            isConnected ? "cursor-pointer" : "cursor-not-allowed text-gray-400"
+          }`}
+        >
           Push to talk
         </label>
         <button
@@ -76,12 +71,14 @@ function BottomToolbar({
           onMouseUp={handleTalkButtonUp}
           onTouchStart={handleTalkButtonDown}
           onTouchEnd={handleTalkButtonUp}
-          disabled={!isPTTActive}
-          className={
-            (isPTTUserSpeaking ? "bg-gray-300" : "bg-gray-200") +
-            " py-1 px-4 cursor-pointer rounded-full" +
-            (!isPTTActive ? " bg-gray-100 text-gray-400" : "")
-          }
+          disabled={!isPTTActive || !isConnected}
+          className={`py-1 px-4 rounded-full transition-colors ${
+            !isPTTActive || !isConnected
+              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+              : isPTTUserSpeaking
+              ? "bg-blue-200 hover:bg-blue-300"
+              : "bg-gray-200 hover:bg-gray-300"
+          }`}
         >
           Talk
         </button>
@@ -92,11 +89,16 @@ function BottomToolbar({
           id="audio-playback"
           type="checkbox"
           checked={isAudioPlaybackEnabled}
-          onChange={e => setIsAudioPlaybackEnabled(e.target.checked)}
+          onChange={(e) => setIsAudioPlaybackEnabled(e.target.checked)}
           disabled={!isConnected}
           className="w-4 h-4"
         />
-        <label htmlFor="audio-playback" className="flex items-center cursor-pointer">
+        <label
+          htmlFor="audio-playback"
+          className={`flex items-center ${
+            isConnected ? "cursor-pointer" : "cursor-not-allowed text-gray-400"
+          }`}
+        >
           Audio playback
         </label>
       </div>
@@ -106,11 +108,11 @@ function BottomToolbar({
           id="logs"
           type="checkbox"
           checked={isEventsPaneExpanded}
-          onChange={e => setIsEventsPaneExpanded(e.target.checked)}
+          onChange={(e) => setIsEventsPaneExpanded(e.target.checked)}
           className="w-4 h-4"
         />
         <label htmlFor="logs" className="flex items-center cursor-pointer">
-          Logs
+          Event Log
         </label>
       </div>
     </div>
