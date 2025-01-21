@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, FC, PropsWithChildren } from "react";
+import React, { createContext, useContext, useState, FC, PropsWithChildren, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { TranscriptItem } from "@/app/types";
 
@@ -17,42 +17,94 @@ const TranscriptContext = createContext<TranscriptContextType | undefined>(undef
 
 export const TranscriptProvider: FC<PropsWithChildren> = ({ children }) => {
   const [transcriptItems, setTranscriptItems] = useState<TranscriptItem[]>([]);
+  const messageCounterRef = useRef(0);
+  const lastUpdateRef = useRef<{ [key: string]: number }>({});  // Track last update time per itemId
 
   const addTranscriptMessage = (message: { role: string; content: string; itemId?: string; isHidden?: boolean }) => {
+    const timestamp = Date.now();
+    
+    // More robust content hash generation
+    const contentHash = message.content
+      .split('')
+      .map(char => char.charCodeAt(0).toString(16))
+      .join('')
+      .slice(0, 8);
+    
+    messageCounterRef.current += 1;
+    
     const newItem: TranscriptItem = {
-      itemId: message.itemId || uuidv4(),
+      itemId: message.itemId || `${timestamp}-${message.role}-${contentHash}-${messageCounterRef.current}-${uuidv4()}`,
       type: "MESSAGE",
-      role: message.role as "user" | "assistant",
+      role: message.role as "user" | "assistant" | "system",
       title: message.content,
       expanded: false,
-      timestamp: new Date().toLocaleTimeString(),
-      createdAtMs: Date.now(),
+      timestamp: new Date(timestamp).toLocaleTimeString(),
+      createdAtMs: timestamp,
       status: "IN_PROGRESS",
       isHidden: message.isHidden || false
     };
 
     setTranscriptItems((prev) => {
-      // Check if message with same ID already exists
-      if (message.itemId && prev.some(item => item.itemId === message.itemId)) {
-        console.warn(`Message with ID ${message.itemId} already exists`);
+      // Check for exact duplicate IDs first
+      if (prev.some(item => item.itemId === newItem.itemId)) {
+        // If duplicate ID found, generate a new unique ID
+        newItem.itemId = `${timestamp}-${message.role}-${contentHash}-${messageCounterRef.current}-${uuidv4()}-${Date.now()}`;
+      }
+
+      // More thorough duplicate checks
+      if (message.itemId) {
+        const existingItem = prev.find(item => item.itemId === message.itemId);
+        if (existingItem) {
+          console.warn(`Message with ID ${message.itemId} already exists:`, 
+            { existing: existingItem.title?.slice(0, 50) || '[no title]', new: message.content.slice(0, 50) });
+          return prev;
+        }
+      }
+
+      // Check for recent duplicates with same content
+      const recentDuplicate = prev.find(item => 
+        item.role === message.role && 
+        item.title === message.content && 
+        timestamp - item.createdAtMs < 200 &&
+        item.itemId.includes(contentHash)
+      );
+
+      if (recentDuplicate) {
+        console.warn('Recent duplicate detected:', 
+          { existing: recentDuplicate.title?.slice(0, 50) || '[no title]', timeAgo: timestamp - recentDuplicate.createdAtMs });
         return prev;
       }
+
       return [...prev, newItem];
     });
   };
 
   const updateTranscriptMessage = (itemId: string, newText: string, isDelta: boolean = false) => {
-    setTranscriptItems((prev) =>
-      prev.map((item) => {
+    const now = Date.now();
+    const lastUpdate = lastUpdateRef.current[itemId] || 0;
+    
+    // Skip rapid updates
+    if (isDelta && now - lastUpdate < 50) {
+      return;
+    }
+    
+    lastUpdateRef.current[itemId] = now;
+
+    setTranscriptItems((prev) => {
+      const item = prev.find(i => i.itemId === itemId);
+      if (!item || item.type !== "MESSAGE") return prev;
+
+      return prev.map((item) => {
         if (item.itemId === itemId && item.type === "MESSAGE") {
           return {
             ...item,
             title: isDelta ? (item.title || "") + newText : newText,
+            createdAtMs: now
           };
         }
         return item;
-      })
-    );
+      });
+    });
   };
 
   const addTranscriptBreadcrumb = (title: string, data?: Record<string, any>) => {

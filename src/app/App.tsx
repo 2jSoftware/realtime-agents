@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { v4 as uuidv4 } from "uuid";
+import dynamic from 'next/dynamic';
 
 // UI components
 import Transcript from "./components/Transcript";
@@ -11,6 +12,7 @@ import Events from "./components/Events";
 import BottomToolbar from "./components/BottomToolbar";
 import Analytics from "./components/Analytics";
 import Settings from "./components/Settings";
+import AdvancedAnalytics from './components/AdvancedAnalytics';
 
 // Types
 import { AgentConfig, SessionStatus } from "@/app/types";
@@ -31,12 +33,17 @@ import { analyticsLogger } from "./lib/analyticsLogger";
 
 export type DelegationMode = 'manual' | 'auto';
 
-type TabType = 'chat' | 'analytics' | 'settings';
+type TabType = 'chat' | 'analytics' | 'settings' | 'advanced';
+
+// Create a client-only version of AppContent
+const ClientOnlyAppContent = dynamic(() => Promise.resolve(AppContent), {
+  ssr: false
+});
 
 function App() {
   return (
     <React.Suspense fallback={<div>Loading...</div>}>
-      <AppContent />
+      <ClientOnlyAppContent />
     </React.Suspense>
   );
 }
@@ -46,26 +53,117 @@ function AppContent() {
   const { transcriptItems, addTranscriptMessage, updateTranscriptMessage, updateTranscriptItemStatus } = useTranscript();
   const { logClientEvent } = useEvent();
 
-  const [selectedAgentName, setSelectedAgentName] = useState<string>("");
-  const [selectedAgentConfigSet, setSelectedAgentConfigSet] = useState<AgentConfig[] | null>(null);
-  const [sessionStatus, setSessionStatus] = useState<SessionStatus>("DISCONNECTED");
-  const [userText, setUserText] = useState<string>("");
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [delegationMode, setDelegationMode] = useState<DelegationMode>('manual');
-  const [activeTab, setActiveTab] = useState<TabType>('chat');
-  
+  // Move all state initialization into a useEffect
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [state, setState] = useState({
+    selectedAgentName: "",
+    selectedAgentConfigSet: null as AgentConfig[] | null,
+    sessionStatus: "DISCONNECTED" as SessionStatus,
+    userText: "",
+    theme: 'dark' as 'light' | 'dark',
+    isThemeLoaded: false,
+    delegationMode: 'manual' as DelegationMode,
+    activeTab: 'chat' as TabType,
+    isPTTActive: false,
+    isPTTUserSpeaking: false,
+    isAudioPlaybackEnabled: true,
+    isEventsPaneExpanded: true
+  });
+
   // Managers
   const connectionRef = useRef<ConnectionManager | null>(null);
   const audioManagerRef = useRef<AudioManager | null>(null);
   
-  // Audio interaction states
-  const [isPTTActive, setIsPTTActive] = useState<boolean>(false);
-  const [isPTTUserSpeaking, setIsPTTUserSpeaking] = useState<boolean>(false);
-  const [isAudioPlaybackEnabled, setIsAudioPlaybackEnabled] = useState<boolean>(true);
-  const [isEventsPaneExpanded, setIsEventsPaneExpanded] = useState<boolean>(true);
+  const handleSendMessage = useCallback(async () => {
+    if (!state.userText.trim() || !connectionRef.current?.isConnected) return;
+
+    const messageId = crypto.randomUUID();
+    addTranscriptMessage({
+      itemId: messageId,
+      role: "user",
+      content: state.userText,
+      isHidden: false
+    });
+
+    logClientEvent({
+      type: "USER_MESSAGE_SENT",
+      data: { messageId, content: state.userText },
+    });
+
+    try {
+      await connectionRef.current.sendMessage(state.userText);
+      updateTranscriptItemStatus(messageId, "DONE");
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      updateTranscriptItemStatus(messageId, "DONE");
+      logClientEvent({
+        type: "USER_MESSAGE_ERROR",
+        data: { messageId, error: String(error) },
+      });
+    }
+
+    setState(prev => ({
+      ...prev,
+      userText: ""
+    }));
+  }, [state.userText, connectionRef, addTranscriptMessage, updateTranscriptItemStatus, logClientEvent]);
+
+  // Initialize all state on client side only
+  useEffect(() => {
+    const storedPTT = localStorage.getItem("pushToTalkUI");
+    const storedLogs = localStorage.getItem("logsExpanded");
+    const storedAudio = localStorage.getItem("audioPlaybackEnabled");
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
+
+    setState(prev => ({
+      ...prev,
+      isPTTActive: storedPTT === "true",
+      isEventsPaneExpanded: storedLogs === "true",
+      isAudioPlaybackEnabled: storedAudio === "true",
+      theme: initialTheme,
+      isThemeLoaded: true
+    }));
+
+    document.documentElement.setAttribute('data-theme', initialTheme);
+    setIsInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("pushToTalkUI", state.isPTTActive.toString());
+  }, [state.isPTTActive]);
+
+  useEffect(() => {
+    localStorage.setItem("logsExpanded", state.isEventsPaneExpanded.toString());
+  }, [state.isEventsPaneExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem("audioPlaybackEnabled", state.isAudioPlaybackEnabled.toString());
+  }, [state.isAudioPlaybackEnabled]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (connectionRef.current?.isConnected) {
+        connectionRef.current.disconnect();
+      }
+      if (audioManagerRef.current?.isRecording) {
+        audioManagerRef.current.stopRecording();
+      }
+      if (audioManagerRef.current?.isPlaying) {
+        audioManagerRef.current.stopPlayback();
+      }
+    };
+  }, []);
+
+  // Don't render anything until client-side initialization is complete
+  if (!isInitialized) {
+    return <div>Loading...</div>;
+  }
 
   const handleAgentChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    if (delegationMode === 'auto') {
+    if (state.delegationMode === 'auto') {
       const suggestions = analyticsLogger.getDelegationSuggestions();
       
       // Require extremely high confidence and multiple supporting factors
@@ -88,9 +186,10 @@ function AppContent() {
     }
 
     const newAgentSetKey = event.target.value;
+    const currentAgentSetKey = getCurrentAgentSetKey();
     
     // If the new agent is the same as the current one, do nothing
-    if (newAgentSetKey === agentSetKey) {
+    if (newAgentSetKey === currentAgentSetKey) {
       return;
     }
     
@@ -110,19 +209,23 @@ function AppContent() {
     }
     
     // Disconnect current session if connected
-    if (sessionStatus === "CONNECTED") {
+    if (state.sessionStatus === "CONNECTED") {
       handleDisconnect();
     }
     
-    setSelectedAgentConfigSet(newAgentSet);
+    setState(prev => ({
+      ...prev,
+      selectedAgentConfigSet: newAgentSet
+    }));
     
     // Set the agent name from the first agent in the set
     const firstAgent = newAgentSet[0];
     if (firstAgent) {
-      setSelectedAgentName(firstAgent.name);
-      
-      // Update analytics with new agent context
-      analyticsLogger.setCurrentAgent(firstAgent);
+      setState(prev => ({
+        ...prev,
+        selectedAgentName: firstAgent.name,
+        analyticsLogger: analyticsLogger.setCurrentAgent(firstAgent),
+      }));
       
       // Log outcome projection for the new agent
       analyticsLogger.addOutcomeProjection({
@@ -165,10 +268,13 @@ function AppContent() {
 
   const handleConnect = async () => {
     try {
-      setSessionStatus("CONNECTING");
+      setState(prev => ({
+        ...prev,
+        sessionStatus: "CONNECTING"
+      }));
       
       // Get the current agent's system prompt
-      const currentAgent = selectedAgentConfigSet?.find(agent => agent.name === selectedAgentName);
+      const currentAgent = state.selectedAgentConfigSet?.find(agent => agent.name === state.selectedAgentName);
       const systemPrompt = currentAgent?.instructions || "You are a helpful AI assistant.";
       
       // Initialize managers with API key and system prompt
@@ -182,11 +288,17 @@ function AppContent() {
       const audioManager = createAudioManager();
       audioManagerRef.current = audioManager;
 
-      setSessionStatus("CONNECTED");
+      setState(prev => ({
+        ...prev,
+        sessionStatus: "CONNECTED"
+      }));
       logClientEvent({ type: "connection.established" });
     } catch (error) {
       console.error("Connection error:", error);
-      setSessionStatus("DISCONNECTED");
+      setState(prev => ({
+        ...prev,
+        sessionStatus: "DISCONNECTED"
+      }));
       logClientEvent({ type: "connection.error", error });
     }
   };
@@ -203,47 +315,22 @@ function AppContent() {
       audioManagerRef.current.stopPlayback();
     }
     audioManagerRef.current = null;
-    setSessionStatus("DISCONNECTED");
+    setState(prev => ({
+      ...prev,
+      sessionStatus: "DISCONNECTED"
+    }));
     logClientEvent({ type: "connection.closed" });
   };
-
-  const handleSendMessage = useCallback(async () => {
-    if (!userText.trim() || !connectionRef.current?.isConnected) return;
-
-    const messageId = crypto.randomUUID();
-    addTranscriptMessage({
-      itemId: messageId,
-      role: "user",
-      content: userText,
-      isHidden: false
-    });
-
-    logClientEvent({
-      type: "USER_MESSAGE_SENT",
-      data: { messageId, content: userText },
-    });
-
-    try {
-      await connectionRef.current.sendMessage(userText);
-      updateTranscriptItemStatus(messageId, "DONE");
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      updateTranscriptItemStatus(messageId, "DONE");
-      logClientEvent({
-        type: "USER_MESSAGE_ERROR",
-        data: { messageId, error: String(error) },
-      });
-    }
-
-    setUserText("");
-  }, [userText, connectionRef, addTranscriptMessage, updateTranscriptItemStatus, logClientEvent]);
 
   const handleTalkButtonDown = async () => {
     if (!connectionRef.current?.isConnected || !audioManagerRef.current) return;
     
     try {
       await audioManagerRef.current.startRecording();
-      setIsPTTUserSpeaking(true);
+      setState(prev => ({
+        ...prev,
+        isPTTUserSpeaking: true
+      }));
       logClientEvent({ type: "ptt.start" });
     } catch (error) {
       console.error("Recording error:", error);
@@ -252,11 +339,14 @@ function AppContent() {
   };
 
   const handleTalkButtonUp = async () => {
-    if (!connectionRef.current?.isConnected || !isPTTUserSpeaking || !audioManagerRef.current) return;
+    if (!connectionRef.current?.isConnected || !state.isPTTUserSpeaking || !audioManagerRef.current) return;
     
     try {
       const audioBlob = await audioManagerRef.current.stopRecording();
-      setIsPTTUserSpeaking(false);
+      setState(prev => ({
+        ...prev,
+        isPTTUserSpeaking: false
+      }));
       logClientEvent({ type: "ptt.end" });
 
       // Convert audio to text using the speech-to-text service
@@ -278,78 +368,15 @@ function AppContent() {
     }
   };
 
-  useEffect(() => {
-    const storedPTT = localStorage.getItem("pushToTalkUI");
-    if (storedPTT) setIsPTTActive(storedPTT === "true");
-
-    const storedLogs = localStorage.getItem("logsExpanded");
-    if (storedLogs) setIsEventsPaneExpanded(storedLogs === "true");
-
-    const storedAudio = localStorage.getItem("audioPlaybackEnabled");
-    if (storedAudio) setIsAudioPlaybackEnabled(storedAudio === "true");
-
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.setAttribute('data-theme', savedTheme);
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("pushToTalkUI", isPTTActive.toString());
-  }, [isPTTActive]);
-
-  useEffect(() => {
-    localStorage.setItem("logsExpanded", isEventsPaneExpanded.toString());
-  }, [isEventsPaneExpanded]);
-
-  useEffect(() => {
-    localStorage.setItem("audioPlaybackEnabled", isAudioPlaybackEnabled.toString());
-  }, [isAudioPlaybackEnabled]);
-
-  const updateTheme = (newTheme: 'light' | 'dark') => {
-    setTheme(newTheme);
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-  };
-
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    updateTheme(newTheme);
-  };
-
-  // Initialize theme on mount
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
-    updateTheme(initialTheme);
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (connectionRef.current?.isConnected) {
-        connectionRef.current.disconnect();
-      }
-      if (audioManagerRef.current?.isRecording) {
-        audioManagerRef.current.stopRecording();
-      }
-      if (audioManagerRef.current?.isPlaying) {
-        audioManagerRef.current.stopPlayback();
-      }
-    };
-  }, []);
-
   const agentSetKey = searchParams.get("agentConfig") || defaultAgentSetKey;
 
   // Find current agent set key
   const getCurrentAgentSetKey = () => {
-    if (!selectedAgentConfigSet) return agentSetKey;
+    if (!state.selectedAgentConfigSet) return agentSetKey;
     
     for (const [category, agents] of Object.entries(agentCategories)) {
       for (const [key, agent] of Object.entries(agents)) {
-        if (allAgentSets[key as keyof typeof allAgentSets] === selectedAgentConfigSet) {
+        if (allAgentSets[key as keyof typeof allAgentSets] === state.selectedAgentConfigSet) {
           return key;
         }
       }
@@ -401,9 +428,12 @@ function AppContent() {
           </div>
           <div className="flex border border-[var(--border)] rounded-lg overflow-hidden">
             <button
-              onClick={() => setActiveTab('chat')}
+              onClick={() => setState(prev => ({
+                ...prev,
+                activeTab: 'chat'
+              }))}
               className={`px-4 py-2 text-sm transition-colors ${
-                activeTab === 'chat' 
+                state.activeTab === 'chat' 
                   ? 'bg-[var(--bubble-bg)] text-[var(--text-primary)]' 
                   : 'hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]'
               }`}
@@ -411,9 +441,12 @@ function AppContent() {
               Chat
             </button>
             <button
-              onClick={() => setActiveTab('analytics')}
+              onClick={() => setState(prev => ({
+                ...prev,
+                activeTab: 'analytics'
+              }))}
               className={`px-4 py-2 text-sm transition-colors ${
-                activeTab === 'analytics' 
+                state.activeTab === 'analytics' 
                   ? 'bg-[var(--bubble-bg)] text-[var(--text-primary)]' 
                   : 'hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]'
               }`}
@@ -421,9 +454,25 @@ function AppContent() {
               Analytics
             </button>
             <button
-              onClick={() => setActiveTab('settings')}
+              onClick={() => setState(prev => ({
+                ...prev,
+                activeTab: 'advanced'
+              }))}
               className={`px-4 py-2 text-sm transition-colors ${
-                activeTab === 'settings' 
+                state.activeTab === 'advanced' 
+                  ? 'bg-[var(--bubble-bg)] text-[var(--text-primary)]' 
+                  : 'hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]'
+              }`}
+            >
+              Advanced
+            </button>
+            <button
+              onClick={() => setState(prev => ({
+                ...prev,
+                activeTab: 'settings'
+              }))}
+              className={`px-4 py-2 text-sm transition-colors ${
+                state.activeTab === 'settings' 
                   ? 'bg-[var(--bubble-bg)] text-[var(--text-primary)]' 
                   : 'hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]'
               }`}
@@ -431,8 +480,14 @@ function AppContent() {
               Settings
             </button>
           </div>
-          <button onClick={toggleTheme} className="theme-toggle" title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}>
-            {theme === 'light' ? (
+          <button
+            onClick={() => setState(prev => ({
+              ...prev,
+              theme: prev.theme === 'light' ? 'dark' : 'light'
+            }))}
+            className="px-4 py-2 text-sm transition-colors hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]"
+          >
+            {state.theme === 'light' ? (
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
               </svg>
@@ -446,57 +501,78 @@ function AppContent() {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'chat' && (
+        {state.activeTab === 'chat' && (
           <div className="h-full flex">
             <div className="flex-1 p-4">
               <Transcript
-                userText={userText}
-                setUserText={setUserText}
+                userText={state.userText}
+                setUserText={(text) => setState(prev => ({
+                  ...prev,
+                  userText: text
+                }))}
                 onSendMessage={handleSendMessage}
-                canSend={sessionStatus === "CONNECTED"}
-                isPTTActive={isPTTActive}
-                isPTTUserSpeaking={isPTTUserSpeaking}
+                canSend={state.sessionStatus === "CONNECTED"}
+                isPTTActive={state.isPTTActive}
+                isPTTUserSpeaking={state.isPTTUserSpeaking}
                 handleTalkButtonDown={handleTalkButtonDown}
                 handleTalkButtonUp={handleTalkButtonUp}
               />
             </div>
             <div className="w-96 border-l border-[var(--border)]">
               <div className="h-full p-4 overflow-y-auto">
-                <Events isExpanded={true} />
+                <Events isExpanded={state.isEventsPaneExpanded} />
               </div>
             </div>
           </div>
         )}
 
-        {activeTab === 'analytics' && (
+        {state.activeTab === 'analytics' && (
           <div className="h-full p-4">
             <Analytics 
               isExpanded={true}
-              delegationMode={delegationMode}
-              onDelegationModeChange={setDelegationMode}
+              delegationMode={state.delegationMode}
+              onDelegationModeChange={(mode) => setState(prev => ({
+                ...prev,
+                delegationMode: mode
+              }))}
             />
           </div>
         )}
 
-        {activeTab === 'settings' && (
+        {state.activeTab === 'advanced' && (
+          <div className="h-full p-4">
+            <AdvancedAnalytics isExpanded={true} />
+          </div>
+        )}
+
+        {state.activeTab === 'settings' && (
           <div className="h-full p-4">
             <Settings
-              sessionStatus={sessionStatus}
-              isPTTActive={isPTTActive}
-              setIsPTTActive={setIsPTTActive}
-              isAudioPlaybackEnabled={isAudioPlaybackEnabled}
-              setIsAudioPlaybackEnabled={setIsAudioPlaybackEnabled}
+              sessionStatus={state.sessionStatus}
+              isPTTActive={state.isPTTActive}
+              setIsPTTActive={(active) => setState(prev => ({
+                ...prev,
+                isPTTActive: active
+              }))}
+              isAudioPlaybackEnabled={state.isAudioPlaybackEnabled}
+              setIsAudioPlaybackEnabled={(active) => setState(prev => ({
+                ...prev,
+                isAudioPlaybackEnabled: active
+              }))}
             />
           </div>
         )}
       </div>
 
       <BottomToolbar
-        sessionStatus={sessionStatus}
+        sessionStatus={state.sessionStatus}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
-        isEventsPaneExpanded={isEventsPaneExpanded}
-        setIsEventsPaneExpanded={setIsEventsPaneExpanded}
+        isEventsPaneExpanded={state.isEventsPaneExpanded}
+        setIsEventsPaneExpanded={(expanded) => setState(prev => ({
+          ...prev,
+          isEventsPaneExpanded: expanded
+        }))}
       />
     </div>
   );

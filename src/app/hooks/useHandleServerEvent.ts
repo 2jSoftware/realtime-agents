@@ -4,6 +4,7 @@ import { ServerEvent, SessionStatus, AgentConfig } from "@/app/types";
 import { useTranscript } from "@/app/contexts/TranscriptContext";
 import { useEvent } from "@/app/contexts/EventContext";
 import { useRef } from "react";
+import { v4 as uuidv4 } from "uuid";
 
 export interface UseHandleServerEventParams {
   setSessionStatus: (status: SessionStatus) => void;
@@ -30,6 +31,8 @@ export function useHandleServerEvent({
   } = useTranscript();
 
   const { logServerEvent } = useEvent();
+  const systemMessageCounterRef = useRef(0);
+  const lastSystemMessageRef = useRef<{ timestamp: number; content: string } | null>(null);
 
   const handleFunctionCall = async (functionCallParams: {
     name: string;
@@ -123,19 +126,62 @@ export function useHandleServerEvent({
           serverEvent.item?.content?.[0]?.text ||
           serverEvent.item?.content?.[0]?.transcript ||
           "";
-        const role = serverEvent.item?.role as "user" | "assistant";
+        const role = serverEvent.item?.role as "user" | "assistant" | "system";
         const itemId = serverEvent.item?.id;
+        const type = serverEvent.item?.type;
+        const eventType = (serverEvent.item as any)?.event_type;
 
-        if (itemId && transcriptItems.some((item) => item.itemId === itemId)) {
+        if (!itemId || !role || !type) {
+          console.warn('Skipping message with missing data:', { itemId, role, type });
           break;
         }
 
-        if (itemId && role) {
-          if (role === "user" && !text) {
-            text = "[Transcribing...]";
+        const now = Date.now();
+        
+        if (role === "system") {
+          const recentSystemMessage = transcriptItems.find(item => 
+            item.role === "system" &&
+            item.title === text &&
+            now - item.createdAtMs < 2000
+          );
+
+          if (recentSystemMessage) {
+            console.warn('Duplicate system message detected within 2s window, skipping');
+            break;
           }
-          addTranscriptMessage(itemId, role, text);
+
+          const systemMessageId = `system-${text.slice(0, 20)}-${uuidv4()}`;
+          addTranscriptMessage({
+            itemId: systemMessageId,
+            role: "system",
+            content: text,
+            isHidden: false
+          });
+          break;
         }
+
+        const isDuplicate = transcriptItems.some(item => 
+          item.itemId === itemId || 
+          (item.role === role && 
+           item.title === text && 
+           now - item.createdAtMs < 200)
+        );
+
+        if (isDuplicate) {
+          console.warn('Duplicate message detected, skipping:', { itemId, text: text.slice(0, 50) });
+          break;
+        }
+
+        if (role === "user" && !text) {
+          text = "[Transcribing...]";
+        }
+
+        addTranscriptMessage({
+          itemId,
+          role,
+          content: text,
+          isHidden: false
+        });
         break;
       }
 

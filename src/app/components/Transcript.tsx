@@ -93,7 +93,7 @@ function Transcript({
   return (
     <div className="h-full flex flex-col bg-background">
       <div className="flex-1 overflow-y-auto p-4">
-        {transcriptItems.map((item) => {
+        {transcriptItems.map((item, index) => {
           if (item.isHidden) return null;
 
           const isUser = item.role === 'user';
@@ -104,13 +104,16 @@ function Transcript({
               : 'bg-[var(--bubble-bg)] text-[var(--text-primary)] border border-[var(--bubble-border)]'
           }`;
 
+          // Generate a compound key that includes index to ensure uniqueness
+          const itemKey = `${item.itemId}-${index}`;
+
           return (
-            <div key={item.itemId} className={containerClasses}>
+            <div key={itemKey} className={containerClasses}>
               <div className={bubbleClasses}>
                 <ReactMarkdown 
                   className={`prose ${isUser ? 'prose-invert' : 'prose-invert'} max-w-none`}
                   components={{
-                    code: ({ inline, className, children }) => {
+                    code: ({ inline, className, children, ...props }: CodeProps) => {
                       const match = /language-(\w+)/.exec(className || "");
                       return !inline ? (
                         <pre className={`${isUser ? 'bg-blue-700' : 'bg-[var(--input-bg)]'} p-3 rounded-lg overflow-x-auto`}>

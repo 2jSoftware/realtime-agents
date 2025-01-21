@@ -42,7 +42,7 @@ export type AllAgentConfigsType = Record<string, AgentConfig[]>;
 export interface TranscriptItem {
   itemId: string;
   type: "MESSAGE" | "BREADCRUMB";
-  role?: "user" | "assistant";
+  role?: "user" | "assistant" | "system";
   title?: string;
   data?: Record<string, any>;
   expanded: boolean;

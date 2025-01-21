@@ -170,11 +170,11 @@ interface SearchReasoning {
   };
 }
 
-class AnalyticsLogger {
+export class AnalyticsLogger {
   private events: AnalyticsEvent[] = [];
   private currentSessionId: string;
   private currentAgent: AgentConfig | null = null;
-  private interactionPatterns: InteractionPattern | null = null;
+  private interactionPatterns: InteractionPattern[] = [];
   private activeOutcomeProjections: OutcomeProjection[] = [];
   private currentScenarioContext: ScenarioContext | null = null;
   private readonly BRAVE_SEARCH_API_KEY = "BSApMnNeOZz1kBa-J_e9LX8jcu2LfG5";
@@ -430,11 +430,7 @@ class AnalyticsLogger {
 
   // Update interaction patterns based on conversation analysis
   updateInteractionPatterns(patterns: Partial<InteractionPattern>) {
-    this.interactionPatterns = {
-      ...this.interactionPatterns,
-      ...patterns,
-    } as InteractionPattern;
-
+    this.interactionPatterns.push(patterns as InteractionPattern);
     this.logInteraction("patterns_updated", {
       newPatterns: patterns,
       fullPatterns: this.interactionPatterns,
@@ -457,7 +453,7 @@ class AnalyticsLogger {
     recentEvents: AnalyticsEvent[];
   } {
     return {
-      interactionInsights: this.interactionPatterns,
+      interactionInsights: this.interactionPatterns.length > 0 ? this.interactionPatterns[this.interactionPatterns.length - 1] : null,
       outcomeInsights: this.activeOutcomeProjections,
       recentEvents: this.events.slice(-50), // Get last 50 events
     };
@@ -470,7 +466,7 @@ class AnalyticsLogger {
     confidence: number;
     contextMatch: Record<string, number>;
   } {
-    if (!this.currentScenarioContext || !this.interactionPatterns) {
+    if (!this.currentScenarioContext || this.interactionPatterns.length === 0) {
       return {
         suggestedAgents: [],
         reasoning: ["Insufficient context for delegation suggestions"],
@@ -479,18 +475,177 @@ class AnalyticsLogger {
       };
     }
 
-    // TODO: Implement sophisticated agent matching based on:
-    // - Required capabilities vs agent capabilities
-    // - Domain expertise alignment
-    // - Historical success patterns
-    // - Interaction style compatibility
-    
-    return {
-      suggestedAgents: [],
-      reasoning: ["Delegation suggestion logic not yet implemented"],
-      confidence: 0,
-      contextMatch: {}
+    const currentPattern = this.interactionPatterns[this.interactionPatterns.length - 1];
+    const requiredCapabilities = this.currentScenarioContext.requiredCapabilities;
+    const domain = this.currentScenarioContext.domain;
+    const complexity = this.currentScenarioContext.complexity;
+
+    // Calculate context match scores
+    const contextMatch: Record<string, number> = {
+      domainExpertise: this.calculateDomainMatch(domain),
+      capabilityAlignment: this.calculateCapabilityMatch(requiredCapabilities),
+      complexityHandling: this.calculateComplexityMatch(complexity),
+      interactionStyle: this.calculateInteractionStyleMatch(currentPattern)
     };
+
+    // Calculate overall confidence
+    const confidence = Object.values(contextMatch).reduce((sum, score) => sum + score, 0) / Object.values(contextMatch).length;
+
+    // Generate reasoning based on matches
+    const reasoning: string[] = [];
+    if (contextMatch.domainExpertise > 0.8) {
+      reasoning.push(`Strong domain expertise match in ${domain}`);
+    }
+    if (contextMatch.capabilityAlignment > 0.8) {
+      reasoning.push(`High capability alignment with required skills`);
+    }
+    if (contextMatch.complexityHandling > 0.8) {
+      reasoning.push(`Well-suited for ${complexity} complexity scenarios`);
+    }
+    if (contextMatch.interactionStyle > 0.8) {
+      reasoning.push(`Compatible interaction style`);
+    }
+
+    // Suggest agents based on matches
+    const suggestedAgents = this.getSuggestedAgents(contextMatch);
+
+    return {
+      suggestedAgents,
+      reasoning,
+      confidence,
+      contextMatch
+    };
+  }
+
+  private calculateDomainMatch(domain: string): number {
+    if (!this.currentAgent) return 0;
+    
+    // Check if agent's description or capabilities mention the domain
+    const domainTerms = [domain, ...this.getDomainRelatedTerms(domain)];
+    const descriptionMatch = domainTerms.some(term => 
+      this.currentAgent!.publicDescription.toLowerCase().includes(term.toLowerCase())
+    );
+    
+    return descriptionMatch ? 0.95 : 0.5;
+  }
+
+  private calculateCapabilityMatch(requiredCapabilities: string[]): number {
+    if (!this.currentAgent) return 0;
+    
+    // Extract capabilities from agent's description
+    const agentCapabilities = this.extractCapabilitiesFromDescription(this.currentAgent.publicDescription);
+    
+    // Calculate overlap
+    const matchingCapabilities = requiredCapabilities.filter(cap => 
+      agentCapabilities.some(agentCap => agentCap.includes(cap.toLowerCase()))
+    );
+    
+    return matchingCapabilities.length / requiredCapabilities.length;
+  }
+
+  private calculateComplexityMatch(complexity: "low" | "medium" | "high"): number {
+    if (!this.currentAgent) return 0;
+    
+    // Check agent's description for complexity indicators
+    const description = this.currentAgent.publicDescription.toLowerCase();
+    
+    switch (complexity) {
+      case "high":
+        return description.includes("complex") || description.includes("sophisticated") ? 0.95 : 0.6;
+      case "medium":
+        return !description.includes("basic") && !description.includes("complex") ? 0.95 : 0.7;
+      case "low":
+        return description.includes("simple") || description.includes("basic") ? 0.95 : 0.8;
+      default:
+        return 0.7;
+    }
+  }
+
+  private calculateInteractionStyleMatch(pattern: InteractionPattern): number {
+    if (!this.currentAgent || !pattern.interactionStyle) return 0;
+    
+    const styleMatch = {
+      formality: pattern.interactionStyle.formality === this.extractInteractionStyle(this.currentAgent.publicDescription),
+      detailLevel: this.matchesDetailLevel(pattern.interactionStyle.detailLevel),
+      format: this.matchesPreferredFormat(pattern.interactionStyle.preferredFormat)
+    };
+    
+    return Object.values(styleMatch).filter(Boolean).length / Object.values(styleMatch).length;
+  }
+
+  private getDomainRelatedTerms(domain: string): string[] {
+    const domainTerms: Record<string, string[]> = {
+      philosophical: ["methodology", "framework", "principle", "theory"],
+      research: ["analysis", "investigation", "study", "evaluation"],
+      development: ["implementation", "iteration", "improvement", "refinement"],
+      interaction: ["communication", "dialogue", "exchange", "conversation"]
+    };
+    
+    return domainTerms[domain as keyof typeof domainTerms] || [];
+  }
+
+  private extractCapabilitiesFromDescription(description: string): string[] {
+    const capabilities = new Set<string>();
+    const text = description.toLowerCase();
+    
+    // Common capability indicators
+    const indicators = [
+      "can", "able to", "capable of", "specializes in",
+      "expertise in", "skilled in", "proficient in"
+    ];
+    
+    indicators.forEach(indicator => {
+      const index = text.indexOf(indicator);
+      if (index !== -1) {
+        const segment = text.slice(index + indicator.length, index + indicator.length + 50);
+        const capability = segment.split(/[.,;]|and/)[0].trim();
+        capabilities.add(capability);
+      }
+    });
+    
+    return Array.from(capabilities);
+  }
+
+  private extractInteractionStyle(description: string): string {
+    const text = description.toLowerCase();
+    if (text.includes("formal") || text.includes("professional")) return "formal";
+    if (text.includes("casual") || text.includes("conversational")) return "casual";
+    return "balanced";
+  }
+
+  private matchesDetailLevel(requiredLevel: string): boolean {
+    if (!this.currentAgent) return false;
+    const description = this.currentAgent.publicDescription.toLowerCase();
+    
+    switch (requiredLevel) {
+      case "high":
+        return description.includes("detailed") || description.includes("comprehensive");
+      case "medium":
+        return description.includes("balanced") || description.includes("appropriate");
+      case "low":
+        return description.includes("concise") || description.includes("brief");
+      default:
+        return true;
+    }
+  }
+
+  private matchesPreferredFormat(formats: string[]): boolean {
+    if (!this.currentAgent) return false;
+    const description = this.currentAgent.publicDescription.toLowerCase();
+    
+    return formats.some(format => description.includes(format.toLowerCase()));
+  }
+
+  private getSuggestedAgents(contextMatch: Record<string, number>): string[] {
+    if (!this.currentAgent) return [];
+    
+    const overallScore = Object.values(contextMatch).reduce((sum, score) => sum + score, 0) / Object.values(contextMatch).length;
+    
+    if (overallScore > 0.8) {
+      return [this.currentAgent.name];
+    }
+    
+    return [];
   }
 
   private addEvent(event: Omit<AnalyticsEvent, "timestamp" | "metadata">) {
@@ -724,9 +879,13 @@ class AnalyticsLogger {
     }
 
     // Check interaction patterns for knowledge gaps
-    if (this.interactionPatterns?.knowledgeRequirements.uncertaintyAreas) {
+    const currentPattern = this.interactionPatterns.length > 0 
+      ? this.interactionPatterns[this.interactionPatterns.length - 1]
+      : null;
+
+    if (currentPattern?.knowledgeRequirements?.uncertaintyAreas) {
       reasoning.contextualFactors.relevantPatterns.push(
-        ...this.interactionPatterns.knowledgeRequirements.uncertaintyAreas
+        ...currentPattern.knowledgeRequirements.uncertaintyAreas
           .filter(a => a.impact === "high")
           .map(a => a.reason)
       );
@@ -804,6 +963,11 @@ class AnalyticsLogger {
   // Add method to get search history
   getSearchHistory(): SearchReasoning[] {
     return this.searchHistory;
+  }
+
+  // Add getEvents method
+  public getEvents(): AnalyticsEvent[] {
+    return this.events;
   }
 }
 
