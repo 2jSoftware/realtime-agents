@@ -5,118 +5,57 @@ interface BottomToolbarProps {
   sessionStatus: SessionStatus;
   onConnect: () => void;
   onDisconnect: () => void;
-  isPTTActive: boolean;
-  setIsPTTActive: (val: boolean) => void;
-  isPTTUserSpeaking: boolean;
-  handleTalkButtonDown: () => void;
-  handleTalkButtonUp: () => void;
   isEventsPaneExpanded: boolean;
-  setIsEventsPaneExpanded: (val: boolean) => void;
-  isAudioPlaybackEnabled: boolean;
-  setIsAudioPlaybackEnabled: (val: boolean) => void;
+  setIsEventsPaneExpanded: (expanded: boolean) => void;
 }
 
-function BottomToolbar({
+export default function BottomToolbar({
   sessionStatus,
   onConnect,
   onDisconnect,
-  isPTTActive,
-  setIsPTTActive,
-  isPTTUserSpeaking,
-  handleTalkButtonDown,
-  handleTalkButtonUp,
   isEventsPaneExpanded,
-  setIsEventsPaneExpanded,
-  isAudioPlaybackEnabled,
-  setIsAudioPlaybackEnabled,
+  setIsEventsPaneExpanded
 }: BottomToolbarProps) {
-  const isConnected = sessionStatus === "CONNECTED";
-  const isConnecting = sessionStatus === "CONNECTING";
-
   return (
-    <div className="p-4 flex flex-row items-center justify-center gap-x-8 border-t border-[var(--border)] bg-background">
-      <button
-        onClick={isConnected ? onDisconnect : onConnect}
-        disabled={isConnecting}
-        className={`px-4 py-2 rounded-lg font-medium ${
-          isConnected
-            ? "bg-red-600 text-white hover:bg-red-700"
-            : isConnecting
-            ? "bg-[var(--bubble-bg)] text-[var(--text-disabled)] cursor-not-allowed"
-            : "bg-green-600 text-white hover:bg-green-700"
-        }`}
-      >
-        {isConnecting ? "Connecting..." : isConnected ? "Disconnect" : "Connect"}
-      </button>
+    <div className="p-4 border-t border-[var(--border)] bg-background">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          {sessionStatus === "DISCONNECTED" ? (
+            <button
+              onClick={onConnect}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Connect
+            </button>
+          ) : sessionStatus === "CONNECTING" ? (
+            <button
+              disabled
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg cursor-not-allowed"
+            >
+              Connecting...
+            </button>
+          ) : (
+            <button
+              onClick={onDisconnect}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Disconnect
+            </button>
+          )}
+        </div>
 
-      <div className="flex flex-row items-center gap-2">
-        <input
-          id="push-to-talk"
-          type="checkbox"
-          checked={isPTTActive}
-          onChange={(e) => setIsPTTActive(e.target.checked)}
-          disabled={!isConnected}
-          className="w-4 h-4 bg-[var(--input-bg)] border-[var(--border)] rounded accent-blue-600"
-        />
-        <label
-          htmlFor="push-to-talk"
-          className={`flex items-center ${
-            isConnected ? "cursor-pointer text-[var(--text-primary)]" : "cursor-not-allowed text-[var(--text-disabled)]"
-          }`}
-        >
-          Push to talk
-        </label>
-        <button
-          onMouseDown={handleTalkButtonDown}
-          onMouseUp={handleTalkButtonUp}
-          onTouchStart={handleTalkButtonDown}
-          onTouchEnd={handleTalkButtonUp}
-          disabled={!isPTTActive || !isConnected}
-          className={`py-1 px-4 rounded-full transition-colors ${
-            !isPTTActive || !isConnected
-              ? "bg-[var(--bubble-bg)] text-[var(--text-disabled)] cursor-not-allowed"
-              : isPTTUserSpeaking
-              ? "bg-blue-600 hover:bg-blue-700 text-white"
-              : "bg-[var(--input-bg)] hover:bg-[var(--bubble-bg)] text-[var(--text-primary)]"
-          }`}
-        >
-          Talk
-        </button>
-      </div>
-
-      <div className="flex flex-row items-center gap-2">
-        <input
-          id="audio-playback"
-          type="checkbox"
-          checked={isAudioPlaybackEnabled}
-          onChange={(e) => setIsAudioPlaybackEnabled(e.target.checked)}
-          disabled={!isConnected}
-          className="w-4 h-4 bg-[var(--input-bg)] border-[var(--border)] rounded accent-blue-600"
-        />
-        <label
-          htmlFor="audio-playback"
-          className={`flex items-center ${
-            isConnected ? "cursor-pointer text-[var(--text-primary)]" : "cursor-not-allowed text-[var(--text-disabled)]"
-          }`}
-        >
-          Audio playback
-        </label>
-      </div>
-
-      <div className="flex flex-row items-center gap-2">
-        <input
-          id="logs"
-          type="checkbox"
-          checked={isEventsPaneExpanded}
-          onChange={(e) => setIsEventsPaneExpanded(e.target.checked)}
-          className="w-4 h-4 bg-[var(--input-bg)] border-[var(--border)] rounded accent-blue-600"
-        />
-        <label htmlFor="logs" className="flex items-center cursor-pointer text-[var(--text-primary)]">
-          Event Log
-        </label>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setIsEventsPaneExpanded(!isEventsPaneExpanded)}
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            title={isEventsPaneExpanded ? "Hide Events" : "Show Events"}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );
 }
-
-export default BottomToolbar;

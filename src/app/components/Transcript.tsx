@@ -12,6 +12,10 @@ interface TranscriptProps {
   setUserText: (text: string) => void;
   onSendMessage: () => void;
   canSend: boolean;
+  isPTTActive: boolean;
+  isPTTUserSpeaking: boolean;
+  handleTalkButtonDown: () => void;
+  handleTalkButtonUp: () => void;
 }
 
 interface CodeProps {
@@ -20,7 +24,16 @@ interface CodeProps {
   children: React.ReactNode;
 }
 
-function Transcript({ userText, setUserText, onSendMessage, canSend }: TranscriptProps) {
+function Transcript({
+  userText,
+  setUserText,
+  onSendMessage,
+  canSend,
+  isPTTActive,
+  isPTTUserSpeaking,
+  handleTalkButtonDown,
+  handleTalkButtonUp
+}: TranscriptProps) {
   const { transcriptItems, toggleTranscriptItemExpand } = useTranscript();
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [prevLogs, setPrevLogs] = useState<TranscriptItem[]>([]);
@@ -78,8 +91,8 @@ function Transcript({ userText, setUserText, onSendMessage, canSend }: Transcrip
   };
 
   return (
-    <div className="flex flex-col h-full bg-background border border-[var(--border)] shadow-lg rounded-xl">
-      <div className="flex-1 overflow-y-auto p-6" ref={transcriptRef}>
+    <div className="h-full flex flex-col bg-background">
+      <div className="flex-1 overflow-y-auto p-4">
         {transcriptItems.map((item) => {
           if (item.isHidden) return null;
 
@@ -120,28 +133,46 @@ function Transcript({ userText, setUserText, onSendMessage, canSend }: Transcrip
           );
         })}
       </div>
-
-      <div className="border-t border-[var(--border)] p-6 bg-background">
+      
+      <div className="p-4 border-t border-[var(--border)]">
         <div className="flex items-end gap-4">
-          <textarea
-            ref={textareaRef}
-            value={userText}
-            onChange={(e) => setUserText(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type your message..."
-            className="flex-1 min-h-[80px] p-3 border border-[var(--border)] rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-[var(--input-bg)] text-[var(--text-primary)] placeholder-[var(--text-secondary)]"
-          />
-          <button
-            onClick={onSendMessage}
-            disabled={!canSend || !userText.trim()}
-            className={`px-6 py-3 rounded-xl font-medium transition-colors ${
-              canSend && userText.trim()
-                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
-                : 'bg-[var(--bubble-bg)] text-[var(--text-disabled)] cursor-not-allowed'
-            }`}
-          >
-            Send
-          </button>
+          <div className="flex-1">
+            <textarea
+              ref={textareaRef}
+              value={userText}
+              onChange={(e) => setUserText(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Type a message..."
+              rows={3}
+              className="w-full px-3 py-2 bg-[var(--input-bg)] border border-[var(--border)] rounded-lg resize-none text-[var(--text-primary)] placeholder-[var(--text-secondary)]"
+            />
+          </div>
+          
+          <div className="flex flex-col gap-2">
+            {isPTTActive && (
+              <button
+                onMouseDown={handleTalkButtonDown}
+                onMouseUp={handleTalkButtonUp}
+                onTouchStart={handleTalkButtonDown}
+                onTouchEnd={handleTalkButtonUp}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  isPTTUserSpeaking
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "bg-[var(--input-bg)] text-[var(--text-primary)] hover:bg-[var(--bubble-bg)]"
+                }`}
+              >
+                Talk
+              </button>
+            )}
+            
+            <button
+              onClick={onSendMessage}
+              disabled={!canSend || !userText.trim()}
+              className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors`}
+            >
+              Send
+            </button>
+          </div>
         </div>
       </div>
     </div>

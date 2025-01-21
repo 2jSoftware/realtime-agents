@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { v4 as uuidv4 } from "uuid";
@@ -10,6 +10,7 @@ import Transcript from "./components/Transcript";
 import Events from "./components/Events";
 import BottomToolbar from "./components/BottomToolbar";
 import Analytics from "./components/Analytics";
+import Settings from "./components/Settings";
 
 // Types
 import { AgentConfig, SessionStatus } from "@/app/types";
@@ -30,6 +31,8 @@ import { analyticsLogger } from "./lib/analyticsLogger";
 
 export type DelegationMode = 'manual' | 'auto';
 
+type TabType = 'chat' | 'analytics' | 'settings';
+
 function App() {
   return (
     <React.Suspense fallback={<div>Loading...</div>}>
@@ -49,6 +52,7 @@ function AppContent() {
   const [userText, setUserText] = useState<string>("");
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [delegationMode, setDelegationMode] = useState<DelegationMode>('manual');
+  const [activeTab, setActiveTab] = useState<TabType>('chat');
   
   // Managers
   const connectionRef = useRef<ConnectionManager | null>(null);
@@ -203,106 +207,36 @@ function AppContent() {
     logClientEvent({ type: "connection.closed" });
   };
 
-  const handleSendMessage = async () => {
+  const handleSendMessage = useCallback(async () => {
     if (!userText.trim() || !connectionRef.current?.isConnected) return;
 
-    const messageId = uuidv4();
-    
-    // Update scenario context based on message content
-    analyticsLogger.updateScenarioContext(userText);
-    
-    // Log interaction pattern with enhanced context
-    analyticsLogger.updateInteractionPatterns({
-      primaryIntent: "user_query",
-      secondaryIntents: [],
-      contextualDomain: "general",
-      knowledgeRequirements: {
-        domains: ["general"],
-        depth: "moderate",
-        temporalRelevance: "current"
-      },
-      interactionStyle: {
-        formality: "casual",
-        detailLevel: "detailed",
-        preferredFormat: ["text"]
-      },
-      userContext: {
-        expertise: "intermediate",
-        goalClarity: "moderate",
-        engagementStyle: "active"
-      }
-    });
-
+    const messageId = crypto.randomUUID();
     addTranscriptMessage({
       itemId: messageId,
       role: "user",
-      content: userText
+      content: userText,
+      isHidden: false
+    });
+
+    logClientEvent({
+      type: "USER_MESSAGE_SENT",
+      data: { messageId, content: userText },
     });
 
     try {
-      const response = await connectionRef.current.sendMessage(userText);
-      const assistantMessageId = uuidv4();
-      const assistantContent = response.choices[0].message.content;
-      
-      addTranscriptMessage({
-        itemId: assistantMessageId,
-        role: "assistant",
-        content: assistantContent
-      });
-      
-      // Log successful interaction outcome with enhanced data
-      analyticsLogger.addOutcomeProjection({
-        immediateGoal: "Provide relevant information",
-        contextualGoals: ["Maintain conversation coherence", "Ensure user satisfaction"],
-        requiredCapabilities: ["information_synthesis", "natural_language_understanding"],
-        successCriteria: {
-          primary: ["Information accuracy", "Response relevance"],
-          secondary: ["Response timing", "Clarity of explanation"],
-          metrics: {
-            responseTime: "immediate",
-            contentRelevance: "high"
-          }
-        },
-        riskFactors: [{
-          type: "accuracy",
-          likelihood: "low",
-          impact: "high",
-          mitigationStrategy: "Verify information sources"
-        }],
-        delegationHints: {
-          suggestedAgents: [],
-          reasoning: ["Current agent handling query effectively"],
-          confidenceScore: 0.9
-        }
-      });
-      
-      updateTranscriptItemStatus(assistantMessageId, "DONE");
-      logClientEvent({ type: "message.sent", messageId });
-
+      await connectionRef.current.sendMessage(userText);
+      updateTranscriptItemStatus(messageId, "DONE");
     } catch (error) {
-      console.error("Message error:", error);
-      addTranscriptMessage({
-        role: "assistant",
-        content: "Sorry, I encountered an error. Please try again."
+      console.error("Failed to send message:", error);
+      updateTranscriptItemStatus(messageId, "DONE");
+      logClientEvent({
+        type: "USER_MESSAGE_ERROR",
+        data: { messageId, error: String(error) },
       });
-      
-      // Log failed interaction outcome with enhanced error context
-      analyticsLogger.logOutcome("message_exchange_failed", {
-        userMessage: userText,
-        error: error instanceof Error ? error.message : "Unknown error",
-        success: false,
-        failureAnalysis: {
-          type: "system_error",
-          impact: "high",
-          recovery: "retry_suggested"
-        }
-      });
-      
-      logClientEvent({ type: "message.error", error });
     }
 
     setUserText("");
-  };
+  }, [userText, connectionRef, addTranscriptMessage, updateTranscriptItemStatus, logClientEvent]);
 
   const handleTalkButtonDown = async () => {
     if (!connectionRef.current?.isConnected || !audioManagerRef.current) return;
@@ -441,26 +375,12 @@ function AppContent() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={toggleTheme} className="theme-toggle" title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}>
-            {theme === 'light' ? (
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-              </svg>
-            )}
-          </button>
           <div className="flex items-center gap-3">
-            <label className="flex items-center text-base gap-2 font-medium text-foreground">
-              Scenarios
-            </label>
             <div className="relative">
               <select
                 value={getCurrentAgentSetKey()}
                 onChange={handleAgentChange}
-                className="appearance-none bg-background border border-gray-600 rounded-lg text-base px-4 py-2 pr-10 cursor-pointer font-normal text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[300px]"
+                className="appearance-none bg-background border border-[var(--border)] rounded-lg text-base px-4 py-2 pr-10 cursor-pointer font-normal text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[300px]"
               >
                 {Object.entries(agentCategories).map(([category, agents]) => (
                   <optgroup key={category} label={category}>
@@ -472,52 +392,111 @@ function AppContent() {
                   </optgroup>
                 ))}
               </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-[var(--text-secondary)]">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                 </svg>
               </div>
             </div>
           </div>
+          <div className="flex border border-[var(--border)] rounded-lg overflow-hidden">
+            <button
+              onClick={() => setActiveTab('chat')}
+              className={`px-4 py-2 text-sm transition-colors ${
+                activeTab === 'chat' 
+                  ? 'bg-[var(--bubble-bg)] text-[var(--text-primary)]' 
+                  : 'hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`px-4 py-2 text-sm transition-colors ${
+                activeTab === 'analytics' 
+                  ? 'bg-[var(--bubble-bg)] text-[var(--text-primary)]' 
+                  : 'hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]'
+              }`}
+            >
+              Analytics
+            </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`px-4 py-2 text-sm transition-colors ${
+                activeTab === 'settings' 
+                  ? 'bg-[var(--bubble-bg)] text-[var(--text-primary)]' 
+                  : 'hover:bg-[var(--bubble-bg)] text-[var(--text-secondary)]'
+              }`}
+            >
+              Settings
+            </button>
+          </div>
+          <button onClick={toggleTheme} className="theme-toggle" title={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}>
+            {theme === 'light' ? (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+              </svg>
+            )}
+          </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden flex">
-        <div className="flex-1 p-4">
-          <Transcript
-            userText={userText}
-            setUserText={setUserText}
-            onSendMessage={handleSendMessage}
-            canSend={sessionStatus === "CONNECTED"}
-          />
-        </div>
-        <div className="w-96 border-l border-[var(--border)] flex flex-col">
-          <div className="flex-1 p-4 overflow-y-auto">
-            <Events isExpanded={isEventsPaneExpanded} />
+      <div className="flex-1 overflow-hidden">
+        {activeTab === 'chat' && (
+          <div className="h-full flex">
+            <div className="flex-1 p-4">
+              <Transcript
+                userText={userText}
+                setUserText={setUserText}
+                onSendMessage={handleSendMessage}
+                canSend={sessionStatus === "CONNECTED"}
+                isPTTActive={isPTTActive}
+                isPTTUserSpeaking={isPTTUserSpeaking}
+                handleTalkButtonDown={handleTalkButtonDown}
+                handleTalkButtonUp={handleTalkButtonUp}
+              />
+            </div>
+            <div className="w-96 border-l border-[var(--border)]">
+              <div className="h-full p-4 overflow-y-auto">
+                <Events isExpanded={true} />
+              </div>
+            </div>
           </div>
-          <div className="flex-1 p-4 overflow-y-auto border-t border-[var(--border)]">
+        )}
+
+        {activeTab === 'analytics' && (
+          <div className="h-full p-4">
             <Analytics 
-              isExpanded={isEventsPaneExpanded}
+              isExpanded={true}
               delegationMode={delegationMode}
               onDelegationModeChange={setDelegationMode}
             />
           </div>
-        </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <div className="h-full p-4">
+            <Settings
+              sessionStatus={sessionStatus}
+              isPTTActive={isPTTActive}
+              setIsPTTActive={setIsPTTActive}
+              isAudioPlaybackEnabled={isAudioPlaybackEnabled}
+              setIsAudioPlaybackEnabled={setIsAudioPlaybackEnabled}
+            />
+          </div>
+        )}
       </div>
 
       <BottomToolbar
         sessionStatus={sessionStatus}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
-        isPTTActive={isPTTActive}
-        setIsPTTActive={setIsPTTActive}
-        isPTTUserSpeaking={isPTTUserSpeaking}
-        handleTalkButtonDown={handleTalkButtonDown}
-        handleTalkButtonUp={handleTalkButtonUp}
         isEventsPaneExpanded={isEventsPaneExpanded}
         setIsEventsPaneExpanded={setIsEventsPaneExpanded}
-        isAudioPlaybackEnabled={isAudioPlaybackEnabled}
-        setIsAudioPlaybackEnabled={setIsAudioPlaybackEnabled}
       />
     </div>
   );
